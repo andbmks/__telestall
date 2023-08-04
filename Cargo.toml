@@ -1,0 +1,33 @@
+[package]
+name = "telestall"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+futures = "^0.3"
+tables = { path = "./crates/tables" }
+teloxide = { version = "^0.12", features = ["macros"] }
+tokio = { version = "^1.8", features = ["rt-multi-thread", "macros"] }
+chrono = "^0.4"
+async-trait = "^0.1"
+google-sheets4 = "^5.0"
+serde = "^1.0"
+serde_json = "^1.0"
+linked-hash-map = "^0.5"
+log = "^0.4"
+pretty_env_logger = "^0.5"
+regex = "^1.9"
+lazy_static = "^1.4"
+itertools = "^0.11"
+toml = "^0.7"
+minimal-id = "^0.8"
+num-traits = "^0.2"
+num-derive = "^0.4"
+const_format = "^0.2"
+age = "0.9"
+urlencoding = "^2.0"
+strfmt = "0.2.4"
+
+[build-dependencies]
+age = "0.9"
+rand = "0.8"

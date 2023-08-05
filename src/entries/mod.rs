@@ -195,10 +195,10 @@ pub enum Role {
 
 impl Role {
     pub fn is_at_least(&self, at_least: Role) -> bool {
-        match self {
+        match at_least {
             Role::User => true,
-            Role::Merchant => at_least == Role::Merchant || at_least == Role::Moderator,
-            Role::Moderator => at_least == Role::Moderator,
+            Role::Merchant => *self == Role::Merchant || *self == Role::Moderator,
+            Role::Moderator => *self == Role::Moderator,
         }
     }
 }

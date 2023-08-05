@@ -243,6 +243,30 @@ impl ConversationStage<u32> for Stage {
                     }
                 };
 
+                let product = data.product.as_ref().unwrap();
+                let item = data.item.as_ref().unwrap();
+                let amount = data.amount.unwrap();
+
+                bot.send_message(
+                    msg.chat.id,
+                    localize_msg!(warehouse, msg,
+                        "Do you really want to buy {amount}x {name} for <b>{price}</b>?",
+                        "amount" => amount, 
+                        "name" => localize_msg!(warehouse, msg, item.name),
+                        "price" => product.currency.format(&(product.price * amount as f64).to_string())
+                    ),
+                )
+                .reply_markup(ReplyMarkup::Keyboard(KeyboardMarkup {
+                    resize_keyboard: Some(true),
+                    one_time_keyboard: Some(true),
+                    keyboard: vec![vec![
+                        KeyboardButton::new(localize_msg!(warehouse, msg, "Yes")), 
+                        KeyboardButton::new(localize_msg!(warehouse, msg, "No"))]],
+                    ..Default::default()
+                }))
+                .parse_mode(ParseMode::Html)
+                .await?;
+
                 Ok(Self::WaitConfirm(data))
             }
             _ => Ok(self),

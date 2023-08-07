@@ -35,9 +35,12 @@ impl<'a> InlineRequest<'a> {
                     .get(item_id)
                     .map(|item| (item.clone(), products.clone()))
             })
+            .skip(self.page * 50)
             .collect();
 
         pairs.truncate(50);
+        pairs.sort_by_key(|(item, _)| item.name.clone());
+
         let mut results = vec![];
 
         for (item, products) in pairs {
@@ -46,9 +49,38 @@ impl<'a> InlineRequest<'a> {
             ));
         }
 
+        if results.len() == 50 {
+            if let Some(hint) = self.warehouse.items.by_id.get(&"hint_next_page".to_owned()) {
+                results.pop();
+                results.push(InlineQueryResult::Article(
+                    InlineQueryResultArticle::new(
+                        format!("p?np?{}", self.page),
+                        localize!(self.warehouse, &self.lang_code, hint.name),
+                        InputMessageContent::Text(InputMessageContentText::new(
+                            localize!(self.warehouse, &self.lang_code, 
+                                hint.full_desc, 
+                                "page" => self.page + 2, 
+                                "query" => ""))),
+                    )
+                    .description(
+                        localize!(self.warehouse, &self.lang_code, 
+                            hint.inline_desc, 
+                            "page" => self.page + 2, 
+                            "query" => ""))
+                    .thumb_url(hint.image_url.clone().parse().unwrap())
+                    .reply_markup(InlineKeyboardMarkup::new(vec![vec![
+                        InlineKeyboardButton::switch_inline_query_current_chat(
+                            localize!(self.warehouse, &self.lang_code, "Open page #{page}", "page" => self.page + 2),
+                            format!("#{} {}", self.page + 2, self.query.join(","))
+                        ),
+                    ]])),
+                ))
+            }
+        }
+
         self.bot
             .answer_inline_query(&self.q.id, results)
-            .cache_time(10)
+            .cache_time(60)
             .await?;
 
         Ok(())
@@ -196,7 +228,7 @@ impl<'a> InlineRequest<'a> {
         markup = markup.append_row(vec![
             InlineKeyboardButton::switch_inline_query_current_chat(
                 localize!(self.warehouse, &self.lang_code, "Select"),
-                format!("{}", item.name),
+                format!("#1 name:{}", item.name),
             ),
         ]);
 

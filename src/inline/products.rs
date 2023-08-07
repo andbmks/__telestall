@@ -31,13 +31,21 @@ impl<'a> InlineRequest<'a> {
                     .get(&product.item_id)
                     .map(|item| (product, item))
             })
-            // Map merchant to the iterator
+            // Map merchants to the iterator
             .filter_map(|(product, item)| {
                 self.warehouse
                     .merchants
                     .by_name
-                    .get(&product.merchant)
+                    .group(&product.merchant)
                     .map(|merchant| (merchant.clone(), product.clone(), item.clone()))
+            })
+            .flat_map(|(merchants, product, item)| {
+                let mut vec = vec![];
+
+                for merchant in merchants {
+                    vec.push((merchant.1, product.clone(), item.clone()));
+                }
+                vec
             })
             // Filter by query
             .filter(|(merchant, product, item)| {
@@ -69,9 +77,11 @@ impl<'a> InlineRequest<'a> {
 
                 pass
             })
+            .skip(self.page * 50)
             .collect();
 
         pairs.truncate(50);
+        pairs.sort_by_key(|(_, _, item)| item.name.clone());
 
         let mut results = vec![];
 
@@ -82,9 +92,38 @@ impl<'a> InlineRequest<'a> {
             ))
         }
 
+        if results.len() == 50 {
+            if let Some(hint) = self.warehouse.items.by_id.get(&"hint_next_page".to_owned()) {
+                results.pop();
+                results.push(InlineQueryResult::Article(
+                    InlineQueryResultArticle::new(
+                        format!("p?np?{}", self.page),
+                        localize!(self.warehouse, &self.lang_code, hint.name),
+                        InputMessageContent::Text(InputMessageContentText::new(
+                            localize!(self.warehouse, &self.lang_code, 
+                                hint.full_desc, 
+                                "page" => self.page + 2, 
+                                "query" => self.query.join(",")))),
+                    )
+                    .description(
+                        localize!(self.warehouse, &self.lang_code, 
+                            hint.inline_desc, 
+                            "page" => self.page + 2, 
+                            "query" => self.query.join(",")))
+                    .thumb_url(hint.image_url.clone().parse().unwrap())
+                    .reply_markup(InlineKeyboardMarkup::new(vec![vec![
+                        InlineKeyboardButton::switch_inline_query_current_chat(
+                            localize!(self.warehouse, &self.lang_code, "Open page #{page}", "page" => self.page + 2),
+                            format!("#{} {}", self.page + 2, self.query.join(","))
+                        ),
+                    ]])),
+                ))
+            }
+        }
+
         self.bot
             .answer_inline_query(&self.q.id, results)
-            .cache_time(0)
+            .cache_time(60)
             .await?;
 
         Ok(())
@@ -97,7 +136,7 @@ impl<'a> InlineRequest<'a> {
         item: &Item,
     ) -> Result<InlineQueryResultArticle> {
         Ok(InlineQueryResultArticle::new(
-            format!("p?{}", product.id()),
+            format!("p?{}{}", product.id(), merchant.location),
             localize!(self.warehouse, &self.lang_code, item.name.to_owned()),
             self.make_product_content(merchant, item, product).await,
         )

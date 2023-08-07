@@ -89,7 +89,7 @@ impl Searchable for Product {
                 searcher.write(
                     search_group::MERCHANT.to_owned(),
                     format!(
-                        "by {} id {} price {} {:?} {} left {} sold {} granted",
+                        "by:{} id:{} price:{} {:?} {} left {} sold {} granted",
                         merchant,
                         item_id,
                         fmt_price,
@@ -144,11 +144,11 @@ impl Searchable for Item {
             } => {
                 searcher.write(
                     search_group::USER.to_owned(),
-                    format!("name {name} desc {inline_desc} fdesc:{full_desc}").to_lowercase(),
+                    format!("name:{name} desc:{inline_desc} fdesc:{full_desc}").to_lowercase(),
                 );
                 searcher.write(
                     search_group::MERCHANT.to_owned(),
-                    format!("id {id} name {name} desc:{inline_desc} fdesc{full_desc}")
+                    format!("id:{id} name:{name} desc:{inline_desc} fdesc:{full_desc}")
                         .to_lowercase(),
                 );
             }

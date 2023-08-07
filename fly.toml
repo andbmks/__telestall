@@ -7,6 +7,9 @@ mounts = []
 primary_region = "ams"
 processes = []
 
+[env]
+RUST_LOG = "debug"
+
 [[services]]
   internal_port = 8080
   processes = ["app"]

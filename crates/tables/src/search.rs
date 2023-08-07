@@ -35,7 +35,7 @@ impl Searcher {
     pub fn search<'a>(&self, group: &str, mut query: impl Iterator<Item = &'a String>) -> bool {
         self.groups
             .get(group)
-            .is_some_and(|haystack| query.any(|word| haystack.contains(word)))
+            .is_some_and(|haystack| query.all(|word| haystack.contains(word)))
     }
 }
 

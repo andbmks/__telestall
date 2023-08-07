@@ -109,7 +109,7 @@ pub async fn search(bot: Bot, msg: Message, warehouse: SharedWarehouse) -> Resul
         .reply_markup(ReplyMarkup::inline_kb(vec![vec![
             InlineKeyboardButton::switch_inline_query_current_chat(
                 localize_msg!(warehouse, msg, "Search..."),
-                "",
+                "#1 ",
             ),
         ]]))
         .await?;

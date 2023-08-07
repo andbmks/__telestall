@@ -9,7 +9,7 @@ use google_sheets4::{
     Error as SheetsError, FieldMask, Sheets,
 };
 use lazy_static::lazy_static;
-use log::info;
+use log::{error, info};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{error::Error as StdError, fmt::Display, str::FromStr, sync::Arc};
@@ -79,7 +79,7 @@ pub struct MetaEntry {
     pub hash: String,
 }
 
-#[derive()]
+#[derive(Clone)]
 pub struct Sheet<E> {
     hub: Arc<Sheets<HttpsConnector<HttpConnector>>>,
     spreadsheet_id: String,
@@ -203,63 +203,8 @@ impl<E> Sheet<E> {
     }
 }
 
-#[async_trait]
-impl<'de, E: Deserialize<'de> + Send + Sync> TableFetch for Sheet<E> {
-    type Entry<'a> = E where E: 'a;
-    type Error = Error;
-    type Ok<'a> = Vec<E> where Self: 'a, E: 'a;
-
-    async fn fetch(&mut self) -> Result<Self::Ok<'_>> {
-        info!("Fetching sheet data...");
-        let now = Instant::now();
-        let range = self
-            .hub
-            .spreadsheets()
-            .values_get(
-                &self.spreadsheet_id,
-                &self.args.data_range.with_inf_end().to_string(),
-            )
-            .doit()
-            .await
-            .map_err(|e| Error::Sheets(e))?
-            .1;
-
-        info!("Sheet data fetched in {:?}", now.elapsed());
-
-        info!("Deserializing sheet data...");
-        let now = Instant::now();
-        if let Some(values) = range.values {
-            let result = values
-                .into_iter()
-                .map(|mut data| {
-                    let mut deserializer = RowDeserializer::new(&mut data);
-                    match E::deserialize(&mut deserializer) {
-                        Ok(entry) => Some(entry),
-                        Err(_) => None,
-                    }
-                })
-                .filter_map(|e| e)
-                .collect::<Vec<_>>();
-
-            info!("Sheet data deserialized in {:?}", now.elapsed());
-            Ok(result)
-        } else {
-            info!("Deserializing was skipped");
-            Ok(vec![])
-        }
-    }
-}
-
-#[async_trait]
-impl<E: Serialize + Send + Sync> TableExtend<E> for Sheet<E> {
-    type Error = Error;
-    type Ok = usize;
-
-    async fn extend<'a, T>(&'a mut self, entries: T) -> Result<usize>
-    where
-        T: IntoIterator<Item = &'a E> + Send,
-        E: 'a,
-    {
+impl<E: Serialize> Sheet<E> {
+    async fn extend_impl(mut self, entries: Vec<E>) -> Result<()> {
         let row_from = self.fetch_last_available_row().await?;
 
         let row_data = entries
@@ -344,21 +289,10 @@ impl<E: Serialize + Send + Sync> TableExtend<E> for Sheet<E> {
         ])
         .await?;
 
-        // Last inserted row
-        return Ok(row_to - self.args.data_range.r_start - 1);
+        Ok(())
     }
-}
 
-#[async_trait]
-impl<E: Serialize + Send + Sync> TableUpdate<E> for Sheet<E> {
-    type Error = Error;
-    type Ok = ();
-
-    async fn update<'a, T>(&'a mut self, mut from_row: usize, entries: T) -> Result<()>
-    where
-        T: IntoIterator<Item = &'a E> + Send,
-        E: 'a,
-    {
+    async fn update_impl(mut self, mut from_row: usize, entries: Vec<E>) -> Result<()> {
         from_row += self.args.data_range.r_start;
 
         let rows = entries
@@ -392,6 +326,87 @@ impl<E: Serialize + Send + Sync> TableUpdate<E> for Sheet<E> {
 }
 
 #[async_trait]
+impl<'de, E: Deserialize<'de> + Send + Sync> TableFetch for Sheet<E> {
+    type Entry<'a> = E where E: 'a;
+    type Error = Error;
+    type Ok<'a> = Vec<E> where Self: 'a, E: 'a;
+
+    async fn fetch(&mut self) -> Result<Self::Ok<'_>> {
+        info!("Fetching sheet data...");
+        let now = Instant::now();
+        let range = self
+            .hub
+            .spreadsheets()
+            .values_get(
+                &self.spreadsheet_id,
+                &self.args.data_range.with_inf_end().to_string(),
+            )
+            .doit()
+            .await
+            .map_err(|e| Error::Sheets(e))?
+            .1;
+
+        info!("Sheet data fetched in {:?}", now.elapsed());
+
+        info!("Deserializing sheet data...");
+        let now = Instant::now();
+        if let Some(values) = range.values {
+            let result = values
+                .into_iter()
+                .map(|mut data| {
+                    let mut deserializer = RowDeserializer::new(&mut data);
+                    match E::deserialize(&mut deserializer) {
+                        Ok(entry) => Some(entry),
+                        Err(_) => None,
+                    }
+                })
+                .filter_map(|e| e)
+                .collect::<Vec<_>>();
+
+            info!("Sheet data deserialized in {:?}", now.elapsed());
+            Ok(result)
+        } else {
+            info!("Deserializing was skipped");
+            Ok(vec![])
+        }
+    }
+}
+
+#[async_trait]
+impl<E: Serialize + Send + Sync + Clone + 'static> TableExtend<E> for Sheet<E> {
+    type Error = Error;
+    type Ok = ();
+
+    async fn extend<'a, T>(&'a mut self, entries: T) -> Result<()>
+    where
+        T: IntoIterator<Item = &'a E> + Send,
+        E: 'a,
+    {
+        let entries = entries.into_iter().cloned().collect();
+        tokio::task::spawn(self.clone().extend_impl(entries));
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl<E: Serialize + Send + Sync + Clone + 'static> TableUpdate<E> for Sheet<E> {
+    type Error = Error;
+    type Ok = ();
+
+    async fn update<'a, T>(&'a mut self, from_row: usize, entries: T) -> Result<()>
+    where
+        T: IntoIterator<Item = &'a E> + Send,
+        E: 'a,
+    {
+        let entries = entries.into_iter().cloned().collect();
+        tokio::task::spawn(self.clone().update_impl(from_row, entries));
+
+        Ok(())
+    }
+}
+
+#[async_trait]
 impl<E: Send + Sync> TableVersion for Sheet<E> {
     type Error = Error;
 
@@ -415,7 +430,7 @@ mod tests {
 
     const TEST_SPREADSHEET_ID: &'static str = "1CA7P-kYPQInSIiT-Jp0W-JTwqMWmB7tDA8trfOwBCU0";
 
-    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
     struct TestEntry {
         string: String,
         int: f64,

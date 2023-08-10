@@ -6,13 +6,10 @@ mod sell_products;
 
 use lazy_static::lazy_static;
 use regex::Regex;
+use teloxide::types::{InlineQueryResultArticle, InlineQueryResult, InputMessageContentText, InputMessageContent, InlineKeyboardMarkup, InlineKeyboardButton};
 use teloxide::{prelude::*, types::InlineQuery};
 
-use super::{HandlerResult, Result};
-use crate::common::handle_user_from_inline;
-use crate::entries::Role;
-use crate::prelude::User;
-use crate::warehouse::{SharedWarehouse, Warehouse};
+use crate::prelude::*;
 
 pub fn handler() -> HandlerResult {
     Update::filter_inline_query().endpoint(handle_inline_query)
@@ -37,12 +34,12 @@ pub async fn handle_inline_query(
 
     match request.cmd.as_str() {
         "" if request.query.is_empty() => request.make_items().await?,
-        "o" => request.make_orders().await?,
-        "sell" | "woff" if user.role.is_at_least(Role::Merchant) => {
-            sell_products::request(bot, &q, &mut warehouse, &user).await?
+        ".o" => request.make_orders().await?,
+        "~sell" | "~woff" if user.role.is_at_least(Role::Merchant) => {
+            request.make_sells().await?
         }
-        "repl" if user.role.is_at_least(Role::Moderator) => {
-            replenish_products::request(bot, &q, &mut warehouse, &user).await?
+        "~repl" if user.role.is_at_least(Role::Moderator) => {
+            request.make_replenish().await?
         }
         _ => request.make_products().await?,
     };
@@ -52,7 +49,7 @@ pub async fn handle_inline_query(
 
 lazy_static! {
     static ref QUERY_RE: Regex =
-        Regex::new(r"^\s*([.~](?<cmd>\w*))?(\s*#(?<page>[1-9][0-9]*))?(\s*(?<query>.*?))?\s*$")
+        Regex::new(r"^\s*((?<cmd>[.~]\w*))?(\s*#(?<page>[1-9][0-9]*))?(\s*(?<query>.*?))?\s*$")
             .unwrap();
 }
 
@@ -95,7 +92,8 @@ impl<'a> InlineRequest<'a> {
                 query
                     .as_str()
                     .to_lowercase()
-                    .split(',')
+                    .replace("+", " ")
+                    .split(' ')
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_owned())
                     .collect()
@@ -112,5 +110,40 @@ impl<'a> InlineRequest<'a> {
             user,
             lang_code,
         })
+    }
+
+    pub async fn process_results(&mut self, results: &mut Vec<InlineQueryResult>)
+    {
+        if results.len() == 49 {
+            if let Some(hint) = self.warehouse.items.by_id.get(&"hint_next_page".to_owned()) {
+                results.pop();
+                results.push(InlineQueryResult::Article(
+                    InlineQueryResultArticle::new(
+                        format!("p?np?{}", self.page),
+                        localize!(self.warehouse, &self.lang_code, hint.name),
+                        InputMessageContent::Text(InputMessageContentText::new(
+                            localize!(self.warehouse, &self.lang_code, 
+                                hint.full_desc, 
+                                "page" => self.page + 2, 
+                                "query" => self.query.join(" "),
+                                "cmd" => self.cmd))),
+                    )
+                    .description(
+                        localize!(self.warehouse, &self.lang_code, 
+                            hint.inline_desc, 
+                            "page" => self.page + 2, 
+                            "query" => "",
+                            "cmd" => ""))
+                    .thumb_url(hint.image_url.clone().parse().unwrap())
+                    .reply_markup(InlineKeyboardMarkup::new(vec![vec![
+                        InlineKeyboardButton::switch_inline_query_current_chat(
+                            localize!(self.warehouse, &self.lang_code, "Open page #{page}", "page" => self.page + 2),
+                            format!("{} #{} {}", self.cmd, self.page + 2, self.query.join(" "))
+                        ),
+                    ]])),
+                ))
+            }
+        }
+
     }
 }

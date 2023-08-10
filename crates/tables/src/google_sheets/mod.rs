@@ -9,7 +9,7 @@ use google_sheets4::{
     Error as SheetsError, FieldMask, Sheets,
 };
 use lazy_static::lazy_static;
-use log::{error, info};
+use log::info;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{error::Error as StdError, fmt::Display, str::FromStr, sync::Arc};

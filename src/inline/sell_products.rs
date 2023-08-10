@@ -8,102 +8,118 @@ use teloxide::types::{
 use crate::entries::search_group;
 use crate::prelude::*;
 
-pub async fn request(
-    bot: Bot,
-    q: &InlineQuery,
-    warehouse: &mut Warehouse,
-    user: &User,
-) -> Result<()> {
-    warehouse.items.refresh().await?;
-    warehouse.products.refresh().await?;
+use super::InlineRequest;
 
-    let query = q.query[5..] //skip "~sell" or "~woff"
-        .trim()
-        .to_lowercase()
-        .split(" ")
-        .map(|s| s.to_owned())
-        .collect::<Vec<_>>();
-
-    let results = warehouse
-        .products
-        .inner
-        .read()?
-        // Filter out other merchants' products
-        .filter(|product| product.merchant == user.name)
-        // Map item to iterator
-        .filter_map(|product| {
-            warehouse
-                .items
-                .by_id
-                .get(&product.item_id)
-                .map(|item| (product, item))
-        })
-        // Filter by query
-        .filter(|(product, item)| {
-            warehouse
-                .items
-                .search
-                .get(&item.id)
-                .unwrap()
-                .search(&search_group::MERCHANT.to_string(), query.iter())
-                || warehouse
-                    .products
+impl<'a> InlineRequest<'a> {
+    pub async fn make_sells(&mut self) -> Result<()> {
+        let pairs: Vec<_> = self
+            .warehouse
+            .products
+            .inner
+            .read()?
+            // Filter out other merchants' products
+            .filter(|product| product.merchant == self.user.name)
+            // Map item to iterator
+            .filter_map(|product| {
+                self.warehouse
+                    .items
+                    .by_id
+                    .get(&product.item_id)
+                    .map(|item| (product.clone(), item.clone()))
+            })
+            // Filter by query
+            .filter(|(product, item)| {
+                self.warehouse
+                    .items
                     .search
-                    .get(&product.id())
+                    .get(&item.id)
                     .unwrap()
-                    .search(&search_group::MERCHANT.to_string(), query.iter())
-        })
-        // Make article
-        .map(|(product, item)| Ok(InlineQueryResult::Article(make_article(&product, item)?)))
-        // Maximum 50 results are allowed
-        .take(50)
-        .collect::<Result<Vec<_>>>()?;
+                    .search_all(&search_group::MERCHANT.to_string(), self.query.iter())
+                    || self
+                        .warehouse
+                        .products
+                        .search
+                        .get(&product.id())
+                        .unwrap()
+                        .search_all(&search_group::MERCHANT.to_string(), self.query.iter())
+            })
+            .skip(self.page * 49)
+            .take(49)
+            .collect();
 
-    bot.answer_inline_query(&q.id, results)
-        .cache_time(0)
-        .await?;
+        let mut results = vec![];
 
-    Ok(())
-}
+        for (product, item) in pairs {
+            results.push(InlineQueryResult::Article(
+                self.make_sell_article(&product, &item).await?,
+            ));
+        }
 
-fn make_article(product: &Product, item: &Item) -> Result<InlineQueryResultArticle> {
-    let content = make_product_answer(product, item);
+        self.process_results(&mut results).await;
 
-    let content = InputMessageContent::Text(
-        InputMessageContentText::new(content).parse_mode(ParseMode::Html),
-    );
+        self.bot
+            .answer_inline_query(&self.q.id, results)
+            .cache_time(0)
+            .await?;
 
-    Ok(
-        InlineQueryResultArticle::new(format!("p?{}", product.id()), item.name.to_owned(), content)
-            .description(make_description(product, item))
-            .hide_url(true)
-            .thumb_url(item.image_url.clone().parse().unwrap()),
-    )
-}
+        Ok(())
+    }
 
-fn make_description(product: &Product, item: &Item) -> String {
-    // Assign with an inline description
-    let description = item.inline_desc.clone();
-    let mut info = vec![];
+    async fn make_sell_article(
+        &mut self,
+        product: &Product,
+        item: &Item,
+    ) -> Result<InlineQueryResultArticle> {
+        let content = make_product_answer(product, item);
 
-    // Add price
-    let price = if product.negotiated_price {
-        "Negotiated".to_owned()
-    } else {
-        product.currency.format(&product.price.to_string())
-    };
+        let content = InputMessageContent::Text(
+            InputMessageContentText::new(content).parse_mode(ParseMode::Html),
+        );
 
-    match product.payment_method {
-        PaymentMethod::Cash => info.push(format!("{} 💵", price)),
-        PaymentMethod::Card => info.push(format!("{} 💳", price)),
-        PaymentMethod::Both => info.push(format!("{}", price)),
-    };
+        Ok(InlineQueryResultArticle::new(
+            format!("p?{}", product.id()),
+            item.name.to_owned(),
+            content,
+        )
+        .description(self.make_sell_description(product, item).await)
+        .hide_url(true)
+        .thumb_url(item.image_url.clone().parse().unwrap()))
+    }
 
-    // Add amount sold
-    info.push(format!("{} sold", product.amount_sold));
+    async fn make_sell_description(&mut self, product: &Product, item: &Item) -> String {
+        // Assign with an inline description
+        let description = item.inline_desc.clone();
+        let mut info = vec![];
 
-    // Add amount left
-    info.push(format!("{} left", product.amount_left));
+        // Add price
+        let price = if product.negotiated_price {
+            localize!(self.warehouse, &self.lang_code, "Negotiated".to_owned())
+        } else {
+            product.currency.format(&product.price.to_string())
+        };
 
-    format!("{}\n{}", description, info.join(" • "))
+        match product.payment_method {
+            PaymentMethod::Cash => info.push(format!("{} 💵", price)),
+            PaymentMethod::Card => info.push(format!("{} 💳", price)),
+            PaymentMethod::Both => info.push(format!("{}", price)),
+        };
+
+        // Add amount sold
+        info.push(localize!(
+            self.warehouse,
+            &self.lang_code,
+            "{amount} sold",
+            "amount" => product.amount_sold
+        ));
+
+        // Add amount left
+        info.push(localize!(
+            self.warehouse,
+            &self.lang_code,
+            "{amount} left",
+            "amount" => product.amount_left
+        ));
+
+        format!("{}\n{}", description, info.join(" • "))
+    }
 }

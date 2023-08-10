@@ -32,10 +32,16 @@ impl Searcher {
             .is_some_and(|haystack| haystack.contains(query))
     }
 
-    pub fn search<'a>(&self, group: &str, mut query: impl Iterator<Item = &'a String>) -> bool {
+    pub fn search_all<'a>(&self, group: &str, mut query: impl Iterator<Item = &'a String>) -> bool {
         self.groups
             .get(group)
             .is_some_and(|haystack| query.all(|word| haystack.contains(word)))
+    }
+
+    pub fn search_any<'a>(&self, group: &str, mut query: impl Iterator<Item = &'a String>) -> bool {
+        self.groups
+            .get(group)
+            .is_some_and(|haystack| query.any(|word| haystack.contains(word)))
     }
 }
 

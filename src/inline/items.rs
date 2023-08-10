@@ -132,7 +132,7 @@ impl<'a> InlineRequest<'a> {
         products: &Vec<(usize, Product)>,
     ) -> String {
         // Assign with an inline description
-        let description = item.inline_desc.clone();
+        let description = localize!(self.warehouse, &self.lang_code, item.inline_desc.clone());
         let mut info = vec![];
 
         // Add price

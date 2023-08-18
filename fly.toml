@@ -1,6 +1,6 @@
-# fly.toml file generated for telestall-ostrava-1 on 2023-08-18T16:20:56+02:00
+# fly.toml file generated for telestall-krakow-1 on 2023-08-18T16:17:49+02:00
 
-app = "telestall-ostrava-1"
+app = "telestall-krakow-1"
 kill_signal = "SIGINT"
 kill_timeout = 5
 mounts = []

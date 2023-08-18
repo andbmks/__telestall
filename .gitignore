@@ -9,7 +9,5 @@ private_key
 # Rust 
 /target
 Cargo.lock
-crates/tables/target
-crates/tables/Cargo.lock
-crates/tables_v2/target
-crates/tables_v2/Cargo.lock
+crates/*/target
+crates/*/Cargo.lock

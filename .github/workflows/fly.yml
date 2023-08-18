@@ -2,7 +2,7 @@ name: Fly Deploy
 on:
   push:
     branches:
-      - city-brno-1
+      - city-prague-1
 jobs:
   deploy:
     name: Deploy app

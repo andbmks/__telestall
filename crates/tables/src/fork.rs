@@ -112,16 +112,16 @@ macro_rules! fork {
             type Error = Error;
 
             async fn fetch(&mut self) -> Result<Self::Ok<'_>, Self::Error> {
-                log::info!("Fetching origin...");
+                log::debug!("Fetching origin...");
                 let now = tokio::time::Instant::now();
                 let entries = self.$or_name.fetch().await.map_err(|e| Error::Fetch(ErrorFetch::Origin(e)))?;
-                log::info!("Fetched origin in {:?}", now.elapsed());
+                log::debug!("Fetched origin in {:?}", now.elapsed());
 
-                log::info!("Updating subscribers...");
+                log::debug!("Updating subscribers...");
                 let now = tokio::time::Instant::now();
                 $(self.$sub_name.clear().await.map_err(|e| Error::Clear(ErrorClear::$sub_name(e)))?;)+
                 $(self.$sub_name.extend(entries.clone()).await.map_err(|e| Error::Extend(ErrorExtend::$sub_name(e)))?;)+
-                log::info!("Updated subscribers in {:?}", now.elapsed());
+                log::debug!("Updated subscribers in {:?}", now.elapsed());
 
                 Ok(entries)
             }
@@ -135,15 +135,15 @@ macro_rules! fork {
             async fn extend<'a, T>(&'a mut self, entries: T) -> Result<Self::Ok, Self::Error>
                 where T: IntoIterator<Item=&'a $fork_e> + Clone + Sync + Send, $fork_e: 'a {
 
-                log::info!("Extending origin...");
+                log::debug!("Extending origin...");
                 let now = tokio::time::Instant::now();
                 self.$or_name.extend(entries.clone()).await.map_err(|e| Error::Extend(ErrorExtend::Origin(e)))?;
-                log::info!("Extended origin in {:?}", now.elapsed());
+                log::debug!("Extended origin in {:?}", now.elapsed());
 
-                log::info!("Extending subscribers...");
+                log::debug!("Extending subscribers...");
                 let now = tokio::time::Instant::now();
                 $(self.$sub_name.extend(entries.clone()).await.map_err(|e| Error::Extend(ErrorExtend::$sub_name(e)))?;)+
-                log::info!("Extended subscribers in {:?}", now.elapsed());
+                log::debug!("Extended subscribers in {:?}", now.elapsed());
 
                 Ok(())
             }
@@ -158,14 +158,14 @@ macro_rules! fork {
                 where T: IntoIterator<Item=&'a $fork_e> + Clone + Send + Sync, $fork_e: 'a {
 
                 let now = tokio::time::Instant::now();
-                log::info!("Updating origin...");
+                log::debug!("Updating origin...");
                 self.$or_name.update(from_row, entries.clone()).await.map_err(|e| Error::Update(ErrorUpdate::Origin(e)))?;
-                log::info!("Updated origin in {:?}", now.elapsed());
+                log::debug!("Updated origin in {:?}", now.elapsed());
 
-                log::info!("Updating subscribers...");
+                log::debug!("Updating subscribers...");
                 let now = tokio::time::Instant::now();
                 $(self.$sub_name.update(from_row, entries.clone()).await.map_err(|e| Error::Update(ErrorUpdate::$sub_name(e)))?;)+
-                log::info!("Updated subscribers in {:?}", now.elapsed());
+                log::debug!("Updated subscribers in {:?}", now.elapsed());
 
                 Ok(())
             }

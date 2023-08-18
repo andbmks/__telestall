@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use tables::prelude::*;
 use teloxide::prelude::*;
 use teloxide::types::{
@@ -13,11 +14,7 @@ use super::InlineRequest;
 
 impl<'a> InlineRequest<'a> {
     pub async fn make_products(&mut self) -> Result<()> {
-        self.warehouse.items.refresh().await?;
-        self.warehouse.products.refresh().await?;
-        self.warehouse.merchants.refresh().await?;
-
-        let mut pairs: Vec<_> = self
+        let pairs: Vec<_> = self
             .warehouse
             .products
             .inner
@@ -31,60 +28,78 @@ impl<'a> InlineRequest<'a> {
                     .get(&product.item_id)
                     .map(|item| (product, item))
             })
-            // Map merchant to the iterator
+            // Map merchants to the iterator
             .filter_map(|(product, item)| {
                 self.warehouse
                     .merchants
                     .by_name
-                    .get(&product.merchant)
+                    .group(&product.merchant)
                     .map(|merchant| (merchant.clone(), product.clone(), item.clone()))
             })
-            // Filter by query
-            .filter(|(merchant, product, item)| {
-                let mut pass = self
-                    .warehouse
-                    .items
-                    .search
-                    .get(&item.id)
-                    .unwrap()
-                    .search(search_group::USER, self.query.iter());
+            .flat_map(|(merchants, product, item)| {
+                let mut vec = vec![];
 
-                pass |= self
-                    .warehouse
-                    .merchants
-                    .search
-                    .get(&merchant.name)
-                    .unwrap()
-                    .search(search_group::USER, self.query.iter());
-
-                if self.user.role.is_at_least(Role::Merchant) {
-                    pass |= self
-                        .warehouse
-                        .products
-                        .search
-                        .get(&product.id())
-                        .unwrap()
-                        .search(search_group::MERCHANT, self.query.iter());
+                for merchant in merchants {
+                    vec.push((merchant.1, product.clone(), item.clone()));
                 }
-
-                pass
+                vec
             })
-            .collect();
+            // Filter by query
+            .filter_map(|(merchant, product, item)| {
+                let item_searcher = self.warehouse.items.search.get(&item.id).unwrap();
+                let merchant_searcher =
+                    self.warehouse.merchants.search.get(&merchant.name).unwrap();
 
-        pairs.truncate(50);
+                let item_all_passsed =
+                    item_searcher.search_all(search_group::USER, self.query.iter());
+
+                let merchant_all_passed =
+                    merchant_searcher.search_all(search_group::USER, self.query.iter());
+
+                let item_any_passsed =
+                    item_searcher.search_any(search_group::USER, self.query.iter());
+
+                let merchant_any_passed =
+                    merchant_searcher.search_any(search_group::USER, self.query.iter());
+
+                let priority = match (
+                    item_all_passsed,
+                    item_any_passsed,
+                    merchant_all_passed,
+                    merchant_any_passed,
+                ) {
+                    (true, _, true, _) => 0,
+                    (true, _, _, true) => 1,
+                    (true, _, _, _) => 2,
+                    (_, _, true, _) => 3,
+                    (_, true, _, _) => 4,
+                    (_, _, _, true) => 4,
+                    (false, false, false, false) => return None,
+                };
+
+                Some((priority, merchant, product, item))
+            })
+            .sorted_by(|(prior_a, _, _, item_a), (prior_b, _, _, item_b)| {
+                prior_a.cmp(prior_b).then(item_a.name.cmp(&item_b.name))
+            })
+            .skip(self.page * 49)
+            .take(49)
+            .collect();
 
         let mut results = vec![];
 
-        for (merchant, product, item) in pairs {
+        for (_, merchant, product, item) in pairs {
             results.push(InlineQueryResult::Article(
                 self.make_product_article(&merchant, &product, &item)
                     .await?,
             ))
         }
 
+        self.process_results(&mut results).await;
+
         self.bot
             .answer_inline_query(&self.q.id, results)
-            .cache_time(0)
+            .cache_time(60)
             .await?;
 
         Ok(())
@@ -97,7 +112,7 @@ impl<'a> InlineRequest<'a> {
         item: &Item,
     ) -> Result<InlineQueryResultArticle> {
         Ok(InlineQueryResultArticle::new(
-            format!("p?{}", product.id()),
+            format!("p?{}{}", product.id(), merchant.location),
             localize!(self.warehouse, &self.lang_code, item.name.to_owned()),
             self.make_product_content(merchant, item, product).await,
         )
@@ -155,7 +170,7 @@ impl<'a> InlineRequest<'a> {
         product: &Product,
     ) -> String {
         // Assign with an inline description
-        let description = item.inline_desc.clone();
+        let description = localize!(self.warehouse, &self.lang_code, item.inline_desc.clone());
         let mut info = vec![];
 
         // Add merchant's 🛒

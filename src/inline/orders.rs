@@ -13,11 +13,6 @@ use super::InlineRequest;
 
 impl<'a> InlineRequest<'a> {
     pub async fn make_orders(&mut self) -> Result<()> {
-        self.warehouse.orders.refresh().await?;
-        self.warehouse.products.refresh().await?;
-        self.warehouse.items.refresh().await?;
-        self.warehouse.users_meta.refresh().await?;
-
         let user_meta = self
             .warehouse
             .users_meta
@@ -39,7 +34,7 @@ impl<'a> InlineRequest<'a> {
                     .search
                     .get(&order.item_id)
                     .unwrap()
-                    .search(search_group::USER, self.query.iter());
+                    .search_all(search_group::USER, self.query.iter());
 
                 pass |= self
                     .warehouse
@@ -47,7 +42,7 @@ impl<'a> InlineRequest<'a> {
                     .search
                     .get(&order.id)
                     .unwrap()
-                    .search(search_group::USER, self.query.iter());
+                    .search_all(search_group::USER, self.query.iter());
 
                 pass
             })
@@ -58,6 +53,8 @@ impl<'a> InlineRequest<'a> {
                     .get(&order.product_id())
                     .map(|product| (order, product.clone()))
             })
+            .skip(self.page * 49)
+            .take(49)
             .collect();
 
         let mut results = vec![];
@@ -72,7 +69,7 @@ impl<'a> InlineRequest<'a> {
                 .clone();
 
             results.push(InlineQueryResult::Article(
-                self.make_article(&order, &product, &item).await?,
+                self.make_order_article(&order, &product, &item).await?,
             ));
         }
 
@@ -86,7 +83,7 @@ impl<'a> InlineRequest<'a> {
         Ok(())
     }
 
-    async fn make_article(
+    async fn make_order_article(
         &mut self,
         order: &Order,
         product: &Product,

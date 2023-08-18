@@ -1,6 +1,6 @@
-# fly.toml file generated for telestall on 2023-07-24T20:58:03+02:00
+# fly.toml file generated for telestall-brno-1 on 2023-08-04T21:36:22+02:00
 
-app = "telestall"
+app = "telestall-brno-1"
 kill_signal = "SIGINT"
 kill_timeout = 5
 mounts = []
@@ -8,13 +8,12 @@ primary_region = "ams"
 processes = []
 
 [env]
-RUST_LOG = "debug"
+RUST_LOG = "error"
 
 [[services]]
 internal_port = 8080
 processes = ["app"]
 protocol = "tcp"
-
 [services.concurrency]
 hard_limit = 25
 soft_limit = 20

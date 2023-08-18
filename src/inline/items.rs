@@ -12,10 +12,6 @@ use super::InlineRequest;
 
 impl<'a> InlineRequest<'a> {
     pub async fn make_items(&mut self) -> Result<()> {
-        self.warehouse.items.refresh().await?;
-        self.warehouse.products.refresh().await?;
-        self.warehouse.merchants.refresh().await?;
-
         let mut pairs: Vec<_> = self
             .warehouse
             .products
@@ -35,9 +31,12 @@ impl<'a> InlineRequest<'a> {
                     .get(item_id)
                     .map(|item| (item.clone(), products.clone()))
             })
+            .skip(self.page * 49)
+            .take(49)
             .collect();
 
-        pairs.truncate(50);
+        pairs.sort_by_key(|(item, _)| item.name.clone());
+
         let mut results = vec![];
 
         for (item, products) in pairs {
@@ -46,9 +45,11 @@ impl<'a> InlineRequest<'a> {
             ));
         }
 
+        self.process_results(&mut results).await;
+
         self.bot
             .answer_inline_query(&self.q.id, results)
-            .cache_time(10)
+            .cache_time(60)
             .await?;
 
         Ok(())
@@ -131,7 +132,7 @@ impl<'a> InlineRequest<'a> {
         products: &Vec<(usize, Product)>,
     ) -> String {
         // Assign with an inline description
-        let description = item.inline_desc.clone();
+        let description = localize!(self.warehouse, &self.lang_code, item.inline_desc.clone());
         let mut info = vec![];
 
         // Add price
@@ -196,7 +197,7 @@ impl<'a> InlineRequest<'a> {
         markup = markup.append_row(vec![
             InlineKeyboardButton::switch_inline_query_current_chat(
                 localize!(self.warehouse, &self.lang_code, "Select"),
-                format!("{}", item.name),
+                format!("#1 name:{}", item.name.replace(" ", "+")),
             ),
         ]);
 
